@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.25;
 
 import "@openzeppelin/contracts/metatx/ERC2771Context.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -66,11 +66,6 @@ contract Q is ERC2771Context {
     uint256 public currentBurnDecrease;
 
     /**
-     * Registration fee for the current started cycle.
-     */
-    uint256 public currentRegistrationFee;
-
-    /**
      * Total amount of ether burned through calling {enterCycle}.
      */
     uint256 public totalNativeBurned;
@@ -106,6 +101,10 @@ contract Q is ERC2771Context {
      */
     QERC20 public immutable qToken;
     
+    uint256 public minBatchNumber;
+     
+    uint256 public maxBatchNumber;
+
     /**
      * The amount of entries an account has during given cycle.
      * Resets during a new cycle when an account performs an action
@@ -259,15 +258,6 @@ contract Q is ERC2771Context {
     );
 
     /**
-     * @dev Emitted when calling {registerAIMiner} 
-     */
-    event NewAIRegistered(
-        address indexed aiMiner,
-        string name,
-        uint256 currentRegistrationFee
-    );
-
-    /**
      * @dev Emitted when calling {addFundsForAIMiner} 
      */
     event AddFundsForMiner(
@@ -316,39 +306,26 @@ contract Q is ERC2771Context {
         address _devFee,
         address _dxnBuyAndBurn,
         address _nxdDSV,
-        address[] memory AIRegisteredAddresses
+        string memory tokenSymbol,
+        string memory tokenName,
+        uint256 totalSupply,
+        uint256 _i_periodDuration,
+        uint256 _minBatchNumber,
+        uint256 _maxBatchNumber
     ) ERC2771Context(forwarder) payable {
+        require(minBatchNumber > 0, "Min batch must be greater than 0!");
         devFee = _devFee;
         nxdDSV = _nxdDSV;
 
-        qToken = new QERC20();
+        qToken = new QERC20(tokenName, tokenSymbol,totalSupply);
         dxnBuyAndBurn = _dxnBuyAndBurn;
-        qBuyAndBurn = address(new QBuyBurn(address(qToken)));
+        qBuyAndBurn = address(new QBuyBurn(address(qToken),_i_periodDuration));
         
         i_initialTimestamp = block.timestamp;
-        i_periodDuration = 1 days;
+        i_periodDuration = _i_periodDuration;
+        minBatchNumber = _minBatchNumber;
+        maxBatchNumber = _maxBatchNumber;
 
-        currentRegistrationFee = 10 ether;
-
-        uint256 stakerRegistrationFees = msg.value * 75 / 100;
-
-        cycleAccruedFees[0] = stakerRegistrationFees;
-
-        setAiMintersAddresses(AIRegisteredAddresses);
-
-        sendViaCall(payable(qBuyAndBurn), msg.value - stakerRegistrationFees);
-    }
-
-    /**
-     * Initializer function for marking as registered
-     * those AI miners that have done so inside the 
-     * Q payment contract. 
-     */
-    function setAiMintersAddresses(address[] memory AIAddresses) internal {
-        uint256 numberOfAIs = AIAddresses.length;
-        for(uint256 i=0; i < numberOfAIs; i++) {
-            isAIMinerRegistered[AIAddresses[i]] = true;
-        }
     }
 
     /**
@@ -366,11 +343,9 @@ contract Q is ERC2771Context {
         nonReentrant()
         gasWrapper()
     {
-        require(totalNativeBurned <= 1_200_000 ether, "Q: Endgame reached");
-        require(entryMultiplier <= 100, "Q: Max 100");
-        require(entryMultiplier > 0, "Q: Min 1");
-
-        require(isAIMinerRegistered[aiMiner], "Q: Not registered");
+        require(totalNativeBurned <= 1_200_000 ether, "Endgame reached");
+        require(entryMultiplier <= maxBatchNumber, "Greater than the maximum number of batches");
+        require(entryMultiplier > minBatchNumber, "Less than the minimum number of batches");
 
         calculateCycle();
         uint256 currentCycleMem = currentCycle;
@@ -379,7 +354,7 @@ contract Q is ERC2771Context {
         setUpNewCycle(currentCycleMem);
 
         uint256 protocolFee = calculateProtocolFee(entryMultiplier);
-        require(msg.value >= protocolFee, "Q: Value < fee");
+        require(msg.value >= protocolFee, "Value < fee");
 
         address user = _msgSender();
         updateStats(user, currentCycleMem);
@@ -401,27 +376,6 @@ contract Q is ERC2771Context {
     }
 
     /**
-     * Allows anyone to register as an AI miner if the
-     * corresponding registration fee is paid.
-     */
-    function registerAIMiner(string calldata name) external payable {
-        uint256 registrationFee = currentRegistrationFee;
-        require(msg.value >= registrationFee);
-
-        address aiMiner = _msgSender();
-        require(!isAIMinerRegistered[aiMiner], "Q: AI registered");
-
-        isAIMinerRegistered[aiMiner] = true;
-
-        if(msg.value > registrationFee) {
-            sendViaCall(payable(msg.sender), msg.value - registrationFee);
-        }
-
-        distributeFees(registrationFee, currentStartedCycle);
-        emit NewAIRegistered(aiMiner, name, registrationFee);
-    }
-
-    /**
      * @dev Mints newly accrued account rewards and transfers the entire 
      * allocated amount to the transaction sender address.
      */
@@ -438,8 +392,8 @@ contract Q is ERC2771Context {
         updateStats(user, currentCycleMem);
 
         uint256 reward = accRewards[user] - accWithdrawableStake[user];
-        require(reward > 0, "Q: No rewards");
-        require(claimAmount <= reward, "Q: Exceeds rewards");
+        require(reward > 0, "No rewards");
+        require(claimAmount <= reward, "Exceeds rewards");
 
         accRewards[user] -= claimAmount;
         if (lastStartedCycle == currentStartedCycle) {
@@ -467,8 +421,8 @@ contract Q is ERC2771Context {
         updateStats(user, currentCycleMem);
 
         uint256 fees = accAccruedFees[user];
-        require(fees > 0, "Q: Amount is zero");
-        require(claimAmount <= fees, "Q: Claim amount exceeds fees");
+        require(fees > 0, "Amount is zero");
+        require(claimAmount <= fees, "Claim amount exceeds fees");
 
         accAccruedFees[user] -= claimAmount;
 
@@ -495,8 +449,8 @@ contract Q is ERC2771Context {
         endCycle(currentCycleMem);
         updateStats(user, currentCycleMem);
 
-        require(amount > 0, "Q: Amount is zero");
-        require(currentCycleMem == currentStartedCycle, "Q: Only stake during active cycle");
+        require(amount > 0, "Amount is zero");
+        require(currentCycleMem == currentStartedCycle, "Only stake during active cycle");
 
         pendingStake += amount;
 
@@ -585,21 +539,6 @@ contract Q is ERC2771Context {
      */
     function calculateProtocolFee(uint256 entryMultiplier) internal view returns(uint256 protocolFee) {
         protocolFee = (0.01 ether * entryMultiplier * (1000  + cycleInteractions)) / 1000;
-    }
-
-    /**
-     * If the current registration fee is not 5 ether,
-     * the fee gets updated for the new started cycle.
-     */
-    function calculateRegisterFee() internal {
-        if(currentRegistrationFee > 5 ether) {
-            uint256 newRegistrationFee = (currentRegistrationFee * 10000) / 10020;
-            if(newRegistrationFee < 5 ether) {
-                currentRegistrationFee = 5 ether;
-            } else {
-                currentRegistrationFee = newRegistrationFee;
-            }
-        }
     }
 
     /**
@@ -714,8 +653,6 @@ contract Q is ERC2771Context {
      */
     function setUpNewCycle(uint256 cycle) internal {
         if (cycle != currentStartedCycle) {
-            calculateRegisterFee();
-
             currentStartedCycle = cycle;
 
             cycleInteractions = 0;

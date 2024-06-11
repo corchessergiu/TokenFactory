@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.25;
 
 import "@uniswap/v3-periphery/contracts/libraries/OracleLibrary.sol";
 import "@uniswap/v3-periphery/contracts/libraries/PoolAddress.sol";
@@ -10,7 +10,7 @@ contract QBuyBurn {
 
     uint256 public i_initialTimestamp;
 
-    uint256 public constant i_periodDuration = 1 days;
+    uint256 public i_periodDuration;
 
     uint256 public firstCycleReceivedEther;
 
@@ -18,13 +18,13 @@ contract QBuyBurn {
 
     uint256 public collectedAmount;
 
-    address public immutable Q; 
+    address public immutable NEWTOKEN; 
     
-    address public immutable Q_WETH9_Pool;    
+    address public immutable Q_NewToken_Pool;    
 
     address public constant UNISWAP_V3_FACTORY = 0x1F98431c8aD98523631AE4a59f267346ea31F984;
 
-    address public constant WETH9 = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2; 
+    address public constant Q_ADDRESS = 0xACA40632C51C2a03209D2714b88Aa0f1456A2101; 
 
     address public constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
 
@@ -35,23 +35,24 @@ contract QBuyBurn {
     uint24 public constant poolFee = 10000;
 
     receive() external payable {
-        if(block.timestamp < i_initialTimestamp + 1 days) {
+        if(block.timestamp < i_initialTimestamp + i_periodDuration) {
             firstCycleReceivedEther += msg.value;
          } else {
             collectedAmount += msg.value;
          }
     }
 
-    constructor(address _qAddress) {
+    constructor(address _newTokenAddress, uint256 _i_periodDuration) {
+        i_periodDuration = _i_periodDuration;
         i_initialTimestamp = block.timestamp;
-        Q_WETH9_Pool = computePoolAddress(WETH9, _qAddress, poolFee);
-        Q = _qAddress;
+        Q_NewToken_Pool = computePoolAddress(Q_ADDRESS, _newTokenAddress, poolFee);
+        NEWTOKEN = _newTokenAddress;
     }
 
     function burnToken(uint256 amountToBurn, uint256 deadline) public {
         require(msg.sender == tx.origin, "Use EOA!");
-        require(isContract(Q_WETH9_Pool), "Pool does not exist!");
-        require(block.timestamp > i_initialTimestamp + 1 days, "Early burn!");
+        require(isContract(Q_NewToken_Pool), "Pool does not exist!");
+        require(block.timestamp > i_initialTimestamp + i_periodDuration, "Early burn!");
         require(amountToBurn >= 0.1 ether, "Min 0.1 ETH");
 
         uint256 theFiftiethPart = (firstCycleReceivedEther / 50);
@@ -99,8 +100,8 @@ contract QBuyBurn {
     function _swap(uint256 amountOutMinimum, uint256 amountIn, uint256 deadline) private {
         ISwapRouterMinimal.ExactInputSingleParams memory params =
             ISwapRouterMinimal.ExactInputSingleParams({
-                tokenIn: WETH9,
-                tokenOut: Q,
+                tokenIn: Q_ADDRESS,
+                tokenOut: NEWTOKEN,
                 fee: poolFee,
                 recipient: BURN_ADDRESS,
                 deadline: deadline,
@@ -113,8 +114,8 @@ contract QBuyBurn {
     }
 
     function _getQuote(uint128 amountIn) public view returns(uint256 amountOut) {
-        (int24 tick, ) = OracleLibrary.consult(Q_WETH9_Pool, 1);
-        amountOut = OracleLibrary.getQuoteAtTick(tick, amountIn, WETH9, Q);
+        (int24 tick, ) = OracleLibrary.consult(Q_NewToken_Pool, 1);
+        amountOut = OracleLibrary.getQuoteAtTick(tick, amountIn, Q_ADDRESS, NEWTOKEN);
     }
 
     function isContract(address _addr) private view returns (bool) {
