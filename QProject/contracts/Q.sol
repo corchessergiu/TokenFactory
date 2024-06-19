@@ -11,6 +11,19 @@ contract Q is ERC2771Context {
     using SafeERC20 for QERC20;
     using SafeERC20 for IERC20;
 
+    struct TokenConfig {
+        string tokenSymbol;
+        string tokenName;
+        uint256 totalSupply;
+        uint256 i_periodDuration;
+        uint256 minBatchNumber;
+        uint256 maxBatchNumber;
+        uint256 batchCost;
+        uint256 stakePercentage;
+        uint256 devPercentage;
+        uint256 buyAndBurnPercentage;
+    }
+
     /**
      * Used to minimise division remainder when earned fees are calculated.
      */
@@ -97,7 +110,7 @@ contract Q is ERC2771Context {
      */
     address public immutable tokenBuyAndBurn;
 
-    IERC20 immutable qAddress;
+    IERC20 constant qAddress = IERC20(0xB09da56fa0f59E6a6Ea7C851AD30956351B0BB7D);
 
     /**
      * Q Reward Token contract.
@@ -284,40 +297,29 @@ contract Q is ERC2771Context {
     constructor(
         address forwarder,
         address _devFee,
-        address _qAddress,
-        string memory tokenSymbol,
-        string memory tokenName,
-        uint256 _totalSupply,
-        uint256 _i_periodDuration,
-        uint256 _minBatchNumber,
-        uint256 _maxBatchNumber,
-        uint256 _batchCost,
-        uint256 _stakePercentage,
-        uint256 _devPercentage,
-        uint256 _buyAndBurnPercentage
+        TokenConfig memory config
     ) ERC2771Context(forwarder) payable {
-        require(minBatchNumber > 0, "Min batch must be greater than 0!");
-        require(_stakePercentage + _devPercentage + _buyAndBurnPercentage == 1000, 
+        require(config.minBatchNumber > 0, "Min batch must be greater than 0!");
+        require(config.stakePercentage + config.devPercentage + config.buyAndBurnPercentage == 1000, 
             "Wrong total percentage");
         devFee = _devFee;
-        qAddress = IERC20(_qAddress);
 
-        factoryToken = new QERC20(tokenName, tokenSymbol, _totalSupply);
-        tokenBuyAndBurn = address(new QBuyBurn(address(factoryToken),_i_periodDuration));
+        factoryToken = new QERC20(config.tokenName, config.tokenSymbol, config.totalSupply);
+        tokenBuyAndBurn = address(new QBuyBurn(address(factoryToken), config.i_periodDuration));
         
         i_initialTimestamp = block.timestamp;
-        i_periodDuration = _i_periodDuration;
+        i_periodDuration = config.i_periodDuration;
 
-        minBatchNumber = _minBatchNumber;
-        maxBatchNumber = _maxBatchNumber;
+        minBatchNumber = config.minBatchNumber;
+        maxBatchNumber = config.maxBatchNumber;
 
-        totalSupply = _totalSupply;
+        totalSupply = config.totalSupply;
 
-        batchCost = _batchCost;
+        batchCost = config.batchCost;
 
-        stakePercentage = _stakePercentage;
-        devPercentage = _devPercentage;
-        buyAndBurnPercentage = _buyAndBurnPercentage;
+        stakePercentage = config.stakePercentage;
+        devPercentage = config.devPercentage;
+        buyAndBurnPercentage = config.buyAndBurnPercentage;
     }
 
     /**
