@@ -110,7 +110,7 @@ contract Q is ERC2771Context {
      */
     address public immutable tokenBuyAndBurn;
 
-    IERC20 constant qAddress = IERC20(0xB09da56fa0f59E6a6Ea7C851AD30956351B0BB7D);
+    IERC20 constant qAddress = IERC20(0xACA40632C51C2a03209D2714b88Aa0f1456A2101);
 
     /**
      * Q Reward Token contract.
@@ -299,7 +299,7 @@ contract Q is ERC2771Context {
         address _devFee,
         TokenConfig memory config
     ) ERC2771Context(forwarder) payable {
-        require(config.minBatchNumber > 0, "Min batch must be greater than 0!");
+        //require(config.minBatchNumber > 0, "Min batch must be greater than 0!");
         require(config.stakePercentage + config.devPercentage + config.buyAndBurnPercentage == 1000, 
             "Wrong total percentage");
         devFee = _devFee;
@@ -330,7 +330,6 @@ contract Q is ERC2771Context {
         uint256 entryMultiplier
     )
         external
-        payable
         nonReentrant()
         gasWrapper()
     {
@@ -356,9 +355,8 @@ contract Q is ERC2771Context {
 
         cycleInteractions++;
 
-        distributeFees(protocolFee, currentCycleMem);
-
-        qAddress.safeTransferFrom(user, address(this), protocolFee);
+        distributeFees(protocolFee, currentCycleMem, user);
+        
         emit CycleEntry(user, entryMultiplier);
     }
 
@@ -517,12 +515,16 @@ contract Q is ERC2771Context {
      * Based on the protocol fee, the corresponding allocations are
      * sent to each of the predefined addresses.
      */
-    function distributeFees(uint256 fees, uint256 cycle) internal {
-        cycleAccruedFees[cycle] += fees * stakePercentage / 1000;
+    function distributeFees(uint256 fees, uint256 cycle, address user) internal {
+        uint256 stakerFees = fees * stakePercentage / 1000;
+        cycleAccruedFees[cycle] += stakerFees;
 
+        qAddress.safeTransferFrom(user, address(this),  fees * stakePercentage / 1000);
+        qAddress.safeTransferFrom(user, devFee, fees * devPercentage / 1000);
 
-        qAddress.safeTransfer(devFee, fees * devPercentage / 1000);
-        qAddress.safeTransfer(tokenBuyAndBurn, fees * buyAndBurnPercentage / 1000);
+        uint256 buyAndBurnFees = fees * buyAndBurnPercentage / 1000;
+        qAddress.safeTransferFrom(user, tokenBuyAndBurn, fees * buyAndBurnPercentage / 1000);
+        QBuyBurn(tokenBuyAndBurn).onQERC20Received(buyAndBurnFees);
     }
 
     /**

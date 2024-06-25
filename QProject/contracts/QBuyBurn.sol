@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity ^0.8.25;
 
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@uniswap/v3-periphery/contracts/libraries/OracleLibrary.sol";
 import "@uniswap/v3-periphery/contracts/libraries/PoolAddress.sol";
 import "./interfaces/IWETH9Minimal.sol";
 import "./interfaces/ISwapRouterMinimal.sol";
 
 contract QBuyBurn {
+    using SafeERC20 for IERC20;
 
     uint256 public i_initialTimestamp;
 
@@ -20,7 +23,9 @@ contract QBuyBurn {
 
     address public immutable NEWTOKEN; 
     
-    address public immutable Q_NewToken_Pool;    
+    address public immutable Q_NewToken_Pool;
+
+    address public immutable NEW_TOKEN_FACTORY;    
 
     address public constant UNISWAP_V3_FACTORY = 0x1F98431c8aD98523631AE4a59f267346ea31F984;
 
@@ -34,12 +39,14 @@ contract QBuyBurn {
 
     uint24 public constant poolFee = 10000;
 
-    receive() external payable {
-        if(block.timestamp < i_initialTimestamp + i_periodDuration) {
-            firstCycleReceivedEther += msg.value;
-         } else {
-            collectedAmount += msg.value;
-         }
+    function onQERC20Received(uint256 amount) external {
+        if(msg.sender == NEW_TOKEN_FACTORY) {
+           if(block.timestamp < i_initialTimestamp + i_periodDuration) {
+                firstCycleReceivedEther += amount;
+           } else {
+                collectedAmount += amount;
+           }
+        }
     }
 
     constructor(address _newTokenAddress, uint256 _i_periodDuration) {
@@ -47,6 +54,7 @@ contract QBuyBurn {
         i_initialTimestamp = block.timestamp;
         Q_NewToken_Pool = computePoolAddress(Q_ADDRESS, _newTokenAddress, poolFee);
         NEWTOKEN = _newTokenAddress;
+        NEW_TOKEN_FACTORY = msg.sender;
     }
 
     function burnToken(uint256 amountToBurn, uint256 deadline) public {
@@ -93,8 +101,7 @@ contract QBuyBurn {
 
         _swap(minTokenAmount, amountETH, deadline);
 
-        (bool success,) = payable(msg.sender).call{value: callerPercent}("");
-        require(success, "Transfer failed.");
+        IERC20(Q_ADDRESS).safeTransfer(msg.sender, callerPercent);
     }
 
     function _swap(uint256 amountOutMinimum, uint256 amountIn, uint256 deadline) private {
