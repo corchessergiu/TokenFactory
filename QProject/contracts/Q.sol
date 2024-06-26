@@ -516,14 +516,15 @@ contract Q is ERC2771Context {
      * sent to each of the predefined addresses.
      */
     function distributeFees(uint256 fees, uint256 cycle, address user) internal {
-        uint256 stakerFees = fees * stakePercentage / 1000;
+        uint256 feesPerThousand = fees / 1000;
+        uint256 stakerFees = feesPerThousand * stakePercentage;
         cycleAccruedFees[cycle] += stakerFees;
 
-        qAddress.safeTransferFrom(user, address(this),  fees * stakePercentage / 1000);
-        qAddress.safeTransferFrom(user, devFee, fees * devPercentage / 1000);
+        qAddress.safeTransferFrom(user, address(this), stakerFees);
+        qAddress.safeTransferFrom(user, devFee, feesPerThousand * devPercentage);
 
-        uint256 buyAndBurnFees = fees * buyAndBurnPercentage / 1000;
-        qAddress.safeTransferFrom(user, tokenBuyAndBurn, fees * buyAndBurnPercentage / 1000);
+        uint256 buyAndBurnFees = feesPerThousand * buyAndBurnPercentage;
+        qAddress.safeTransferFrom(user, tokenBuyAndBurn, buyAndBurnFees);
         QBuyBurn(tokenBuyAndBurn).onQERC20Received(buyAndBurnFees);
     }
 
