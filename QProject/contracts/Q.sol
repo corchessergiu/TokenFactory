@@ -259,6 +259,23 @@ contract Q is ERC2771Context {
         uint256 entryMultiplier
     );
 
+    error WrongTotalPercentage(uint256 stakePercentage,uint256 devPercentage,uint256 buyAndBurnPercentage);
+
+    error EndgameReached();
+    error ExceedsMaxBatchNumber();
+    error BelowMinBatchNumber();
+
+    error ClaimRewardZeroBalance(uint256 reward);
+    error ClaimRewardGreater(uint256 claimAmount, uint256 reward);
+
+    error ClaimFeesZeroBalance(uint256 fees);
+    error ClaimFeesGreater(uint256 claimAmount, uint256 fees);
+
+    error StakeZero(uint256 amount);
+    error StakeInInactiveCycle(uint256 currentCycleMem, uint256 currentStartedCycle);
+
+    error UnstakZero(uint256 amount);
+    error AmountGraterThenWithdrawableStake(uint256 amount, uint256 accWithdrawableStake);
     /**
      * Minimal reentrancy lock using transient storage.
      */
@@ -299,9 +316,7 @@ contract Q is ERC2771Context {
         address _devFee,
         TokenConfig memory config
     ) ERC2771Context(forwarder) payable {
-        //require(config.minBatchNumber > 0, "Min batch must be greater than 0!");
-        require(config.stakePercentage + config.devPercentage + config.buyAndBurnPercentage == 1000, 
-            "Wrong total percentage");
+        if(config.stakePercentage + config.devPercentage + config.buyAndBurnPercentage != 1000 ) revert WrongTotalPercentage({stakePercentage:stakePercentage,devPercentage:devPercentage,buyAndBurnPercentage:buyAndBurnPercentage});
         devFee = _devFee;
 
         factoryToken = new QERC20(config.tokenName, config.tokenSymbol, config.totalSupply);
@@ -332,10 +347,10 @@ contract Q is ERC2771Context {
         external
         nonReentrant()
         gasWrapper()
-    {
-        require(totalNativeBurned <= totalSupply, "Endgame reached");
-        require(entryMultiplier <= maxBatchNumber, "Greater than the maximum number of batches");
-        require(entryMultiplier > minBatchNumber, "Less than the minimum number of batches");
+    {   
+        if (totalNativeBurned > totalSupply) revert EndgameReached();
+        if (entryMultiplier > maxBatchNumber) revert ExceedsMaxBatchNumber();
+        if (entryMultiplier <= minBatchNumber) revert BelowMinBatchNumber();
 
         calculateCycle();
         uint256 currentCycleMem = currentCycle;
@@ -377,8 +392,8 @@ contract Q is ERC2771Context {
         updateStats(user, currentCycleMem);
 
         uint256 reward = accRewards[user] - accWithdrawableStake[user];
-        require(reward > 0, "No rewards");
-        require(claimAmount <= reward, "Exceeds rewards");
+        if(reward <= 0) revert ClaimRewardZeroBalance({reward: reward});
+        if(claimAmount > reward) revert ClaimRewardGreater({claimAmount: claimAmount, reward:reward});
 
         accRewards[user] -= claimAmount;
         if (lastStartedCycle == currentStartedCycle) {
@@ -406,8 +421,8 @@ contract Q is ERC2771Context {
         updateStats(user, currentCycleMem);
 
         uint256 fees = accAccruedFees[user];
-        require(fees > 0, "Amount is zero");
-        require(claimAmount <= fees, "Claim amount exceeds fees");
+        if(fees <= 0) revert ClaimFeesZeroBalance({fees:fees});
+        if(claimAmount > fees) revert ClaimFeesGreater({claimAmount:claimAmount, fees:fees});
 
         accAccruedFees[user] -= claimAmount;
 
@@ -433,9 +448,8 @@ contract Q is ERC2771Context {
 
         endCycle(currentCycleMem);
         updateStats(user, currentCycleMem);
-
-        require(amount > 0, "Amount is zero");
-        require(currentCycleMem == currentStartedCycle, "Only stake during active cycle");
+        if(amount <= 0) revert StakeZero({amount:amount});
+        if(currentCycleMem != currentStartedCycle) revert StakeInInactiveCycle({currentCycleMem:currentCycleMem,currentStartedCycle:currentStartedCycle});
 
         pendingStake += amount;
 
@@ -477,12 +491,8 @@ contract Q is ERC2771Context {
 
         endCycle(currentCycleMem);
         updateStats(user, currentCycleMem);
-        
-        require(amount > 0, "Q: Amount is zero");
-        require(
-            amount <= accWithdrawableStake[user],
-            "Q: Amount greater than withdrawable stake"
-        );
+        if(amount <= 0) revert UnstakZero({amount: amount});
+        if(amount > accWithdrawableStake[user]) revert AmountGraterThenWithdrawableStake({amount:amount, accWithdrawableStake:accWithdrawableStake[user]});
 
         if (lastStartedCycle == currentStartedCycle) {
             pendingStakeWithdrawal += amount;
